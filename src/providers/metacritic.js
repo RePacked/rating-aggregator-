@@ -7,11 +7,16 @@ const { formatTitleForUrlSlug } = require('../utils/urlFormatter');
 const PROVIDER_NAME = 'Metacritic';
 const BASE_URL = config.sources.metacriticBaseUrl;
 
-function getMetacriticUrl(title, type) {
-    if (!title || !BASE_URL) return null;
+function buildCandidateUrls(title, type, year) {
     const mediaType = type === 'series' ? 'tv' : 'movie';
     const slug = formatTitleForUrlSlug(title);
-    return slug ? `${BASE_URL}/${mediaType}/${slug}` : null;
+
+    const urls = [];
+    if (year) urls.push(`${BASE_URL}/${mediaType}/${slug}-${year}`);
+    urls.push(`${BASE_URL}/${mediaType}/${slug}`);
+    if (year) urls.push(`${BASE_URL}/${mediaType}/${slug}-${year}-2`);
+
+    return urls;
 }
 
 function scrapeMetacriticPage(html, url) {
@@ -53,15 +58,19 @@ async function getRating(type, imdbId, streamInfo) {
         return null;
     }
 
-    const url = getMetacriticUrl(streamInfo.name, type);
-    if (!url) return null;
+    const year = streamInfo.year || (streamInfo.date?.split('-')[0] || '');
+    const urls = buildCandidateUrls(streamInfo.name, type, year);
 
-    logger.debug(`[${PROVIDER_NAME}] Fetching ${url}`);
+    for (const url of urls) {
+        logger.debug(`[${PROVIDER_NAME}] Trying ${url}`);
+        const res = await getPage(url, PROVIDER_NAME);
+        if (res?.status === 200) {
+            const result = scrapeMetacriticPage(res.data, url);
+            if (result) return result;
+        }
+    }
 
-    const res = await getPage(url, PROVIDER_NAME);
-    if (!res || res.status !== 200) return null;
-
-    return scrapeMetacriticPage(res.data, url);
+    return null;
 }
 
 module.exports = {
